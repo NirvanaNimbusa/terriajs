@@ -21,7 +21,9 @@ import Box from "../../Styled/Box";
 import Text from "../../Styled/Text";
 import MapIconButton from "../MapIconButton/MapIconButton";
 import FeedbackButton from "../Feedback/FeedbackButton";
+import { ToolButton } from "../Tool.tsx";
 import CloseToolButton from "./Navigation/CloseToolButton";
+import PedestrianView from "../Tools/PedestrianView/PedestrianView";
 import Prompt from "../Generic/Prompt";
 import { runInAction } from "mobx";
 import { withTranslation } from "react-i18next";
@@ -108,6 +110,21 @@ class MapNavigation extends React.Component {
                   <ToggleSplitterTool
                     terria={this.props.terria}
                     viewState={this.props.viewState}
+                  />
+                </div>
+              </If>
+              <If
+                condition={
+                  !this.props.terria.configParameters.disablePedestrianView
+                }
+              >
+                <div className={Styles.control}>
+                  <ToolButton
+                    key="pedestrian-view"
+                    viewState={this.props.viewState}
+                    toolName="Pedestrian view"
+                    icon={Icon.GLYPHS.user}
+                    getToolComponent={() => PedestrianView}
                   />
                 </div>
               </If>

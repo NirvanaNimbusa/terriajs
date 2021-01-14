@@ -3,7 +3,7 @@ import { withTranslation, WithTranslation } from "react-i18next";
 import ViewState from "../ReactViewModels/ViewState";
 import SplitPoint from "./SplitPoint";
 import { observer } from "mobx-react";
-import { computed } from "mobx";
+import { computed, trace } from "mobx";
 import Styles from "./Map/Navigation/tool_button.scss";
 import MapIconButton from "./MapIconButton/MapIconButton";
 import Icon from "./Icon";
@@ -56,6 +56,14 @@ export class ToolButton extends React.Component<ToolButtonProps> {
   @computed
   get isThisToolOpen() {
     const currentTool = this.props.viewState.currentTool;
+    console.log(
+      currentTool,
+      currentTool?.getToolComponent,
+      this.props.getToolComponent,
+      currentTool &&
+        currentTool.getToolComponent === this.props.getToolComponent
+    );
+    trace();
     return (
       currentTool &&
       currentTool.getToolComponent === this.props.getToolComponent
