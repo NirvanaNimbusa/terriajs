@@ -122,9 +122,9 @@ class MapNavigation extends React.Component {
                   <ToolButton
                     key="pedestrian-view"
                     viewState={this.props.viewState}
-                    toolName="Pedestrian view"
+                    toolName={t("pedestrianView.toolBtnTitle")}
                     icon={Icon.GLYPHS.user}
-                    getToolComponent={() => PedestrianView}
+                    getToolComponent={() => Promise.resolve(PedestrianView)}
                   />
                 </div>
               </If>

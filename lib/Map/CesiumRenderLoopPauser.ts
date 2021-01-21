@@ -13,7 +13,7 @@ export default class CesiumRenderLoopPauser {
    * Gets or sets whether to output info to the console when starting and stopping rendering loop.
    * @type {boolean}
    */
-  verboseRendering = false;
+  verboseRendering = true;
 
   /**
    * Gets or sets whether the render loop is currently paused.
@@ -111,6 +111,13 @@ export default class CesiumRenderLoopPauser {
     );
 
     window.addEventListener("resize", this._boundNotifyRepaintRequired, false);
+
+    document.addEventListener(
+      "keydown",
+      this._boundNotifyRepaintRequired,
+      false
+    );
+    document.addEventListener("keyup", this._boundNotifyRepaintRequired, false);
 
     // // Hacky way to force a repaint when an async load request completes
     const anyLoadWithXhr: any = loadWithXhr;
@@ -240,6 +247,18 @@ export default class CesiumRenderLoopPauser {
 
       window.removeEventListener(
         "resize",
+        this._boundNotifyRepaintRequired,
+        false
+      );
+
+      document.removeEventListener(
+        "keydown",
+        this._boundNotifyRepaintRequired,
+        false
+      );
+
+      document.removeEventListener(
+        "keyup",
         this._boundNotifyRepaintRequired,
         false
       );

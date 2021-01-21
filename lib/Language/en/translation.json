@@ -1462,5 +1462,8 @@
   "indexedItemSearchProvider": {
     "missingOptionIndexRootUrl": "Option `indexRootUrl` is missing in the item's search configuration.",
     "errorParsingIndexRoot": "Error parsing indexRoot file: {{indexRootUrl}}."
+  },
+  "pedestrianView": {
+    "toolBtnTitle": "Pedestrian View"
   }
 }
