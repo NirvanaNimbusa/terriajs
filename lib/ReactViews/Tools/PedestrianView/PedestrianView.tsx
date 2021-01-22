@@ -3,24 +3,27 @@ import { useTranslation } from "react-i18next";
 import Cartesian2 from "terriajs-cesium/Source/Core/Cartesian2";
 import Cartesian3 from "terriajs-cesium/Source/Core/Cartesian3";
 import Cartographic from "terriajs-cesium/Source/Core/Cartographic";
-import Color from "terriajs-cesium/Source/Core/Color";
 import Ellipsoid from "terriajs-cesium/Source/Core/Ellipsoid";
-import HeadingPitchRoll from "terriajs-cesium/Source/Core/HeadingPitchRoll";
-import Ray from "terriajs-cesium/Source/Core/Ray";
+import CesiumMath from "terriajs-cesium/Source/Core/Math";
+import Matrix4 from "terriajs-cesium/Source/Core/Matrix4";
+import PerspectiveFrustum from "terriajs-cesium/Source/Core/PerspectiveFrustum";
+import Rectangle from "terriajs-cesium/Source/Core/Rectangle";
 import sampleTerrainMostDetailed from "terriajs-cesium/Source/Core/sampleTerrainMostDetailed";
 import ScreenSpaceEventHandler from "terriajs-cesium/Source/Core/ScreenSpaceEventHandler";
 import ScreenSpaceEventType from "terriajs-cesium/Source/Core/ScreenSpaceEventType";
-import CallbackProperty from "terriajs-cesium/Source/DataSources/CallbackProperty";
-import CustomDataSource from "terriajs-cesium/Source/DataSources/CustomDataSource";
-import Entity from "terriajs-cesium/Source/DataSources/Entity";
-import DebugCameraPrimitive from "terriajs-cesium/Source/Scene/DebugCameraPrimitive";
-import DebugModelMatrixPrimitive from "terriajs-cesium/Source/Scene/DebugModelMatrixPrimitive";
+import Transforms from "terriajs-cesium/Source/Core/Transforms";
 import Scene from "terriajs-cesium/Source/Scene/Scene";
 import TerriaError from "../../../Core/TerriaError";
 import Cesium from "../../../Models/Cesium";
 import raiseErrorToUser from "../../../Models/raiseErrorToUser";
 import ViewState from "../../../ReactViewModels/ViewState";
 import DropPedestrian from "./DropPedestrian";
+import MiniMap from "./MiniMap";
+
+type View = {
+  rectangle: Rectangle;
+  position: Cartesian3;
+};
 
 type PropsType = {
   viewState: ViewState;
@@ -28,12 +31,13 @@ type PropsType = {
 
 const PedestrianView: React.FC<PropsType> = props => {
   const { viewState } = props;
+  const terria = viewState.terria;
   const [t] = useTranslation();
   const [initialPosition, setInitialPosition] = useState<
     Cartesian3 | undefined
   >();
+  const [view, setView] = useState<View | undefined>();
 
-  const terria = viewState.terria;
   const currentViewer = terria.currentViewer;
   if (!(currentViewer instanceof Cesium)) {
     raiseErrorToUser(
@@ -54,7 +58,14 @@ const PedestrianView: React.FC<PropsType> = props => {
         <DropPedestrian cesium={cesium} afterDrop={setInitialPosition} />
       )}
       {initialPosition && (
-        <MovementControls cesium={cesium} initialPosition={initialPosition} />
+        <MovementControls
+          cesium={cesium}
+          initialPosition={initialPosition}
+          onViewChange={setView}
+        />
+      )}
+      {initialPosition && (
+        <MiniMap viewState={viewState} view={view || getView(cesium.scene)} />
       )}
     </>
   );
@@ -63,6 +74,7 @@ const PedestrianView: React.FC<PropsType> = props => {
 type MovementControlsProps = {
   cesium: Cesium;
   initialPosition: Cartesian3;
+  onViewChange: (view: View) => void;
 };
 
 const MovementControls: React.FC<MovementControlsProps> = props => {
@@ -85,6 +97,7 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
     };
 
     const onKeyDown = (ev: KeyboardEvent) => {
+      console.log("**shift**", ev.code);
       if (keyMap[ev.code] !== undefined) movements.add(keyMap[ev.code]);
     };
 
@@ -163,6 +176,8 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
             return;
         }
 
+        const view = getView(cesium.scene);
+        if (view) props.onViewChange(view);
         resurfaceIfUnderground(scene);
       });
     };
@@ -178,12 +193,136 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
       document.removeEventListener("keyup", onKeyUp);
       eventHandler.destroy();
       disposeAnimation();
-      scene.screenSpaceCameraController.enableInputs = true;
+      if (scene.screenSpaceCameraController)
+        scene.screenSpaceCameraController.enableInputs = true;
       /* cesium.dataSourceDisplay.dataSources.remove(dataSource); */
     };
   });
   return null;
 };
+
+/* function getView(cesium: Cesium): View {
+ *   const cameraRectangle = cesium.getCurrentCameraView().rectangle;
+ *   const position = cesium.scene.camera.position;
+ *   console.log(
+ *     {
+ *       west: CesiumMath.toDegrees(cameraRectangle.west),
+ *       east: CesiumMath.toDegrees(cameraRectangle.east),
+ *       north: CesiumMath.toDegrees(cameraRectangle.north),
+ *       south: CesiumMath.toDegrees(cameraRectangle.south)
+ *     },
+ *     position
+ *   );
+ *   return {
+ *     rectangle: cameraRectangle,
+ *     position
+ *   };
+ * } */
+
+var cartesian3Scratch = new Cartesian3();
+var enuToFixedScratch = new Matrix4();
+var southwestScratch = new Cartesian3();
+var southeastScratch = new Cartesian3();
+var northeastScratch = new Cartesian3();
+var northwestScratch = new Cartesian3();
+var southwestCartographicScratch = new Cartographic();
+var southeastCartographicScratch = new Cartographic();
+var northeastCartographicScratch = new Cartographic();
+var northwestCartographicScratch = new Cartographic();
+
+function getView(scene: Scene): View {
+  const camera = scene.camera;
+  const ellipsoid = scene.globe.ellipsoid;
+
+  const frustrum = scene.camera.frustum as PerspectiveFrustum;
+
+  const fovy = frustrum.fovy * 0.5;
+  const fovx = Math.atan(Math.tan(fovy) * frustrum.aspectRatio);
+
+  const center = camera.positionWC.clone();
+  const cameraOffset = Cartesian3.subtract(
+    camera.positionWC,
+    center,
+    cartesian3Scratch
+  );
+  const cameraHeight = Cartesian3.magnitude(cameraOffset);
+  const xDistance = cameraHeight * Math.tan(fovx);
+  const yDistance = cameraHeight * Math.tan(fovy);
+
+  const southwestEnu = new Cartesian3(-xDistance, -yDistance, 0.0);
+  const southeastEnu = new Cartesian3(xDistance, -yDistance, 0.0);
+  const northeastEnu = new Cartesian3(xDistance, yDistance, 0.0);
+  const northwestEnu = new Cartesian3(-xDistance, yDistance, 0.0);
+
+  const enuToFixed = Transforms.eastNorthUpToFixedFrame(
+    center,
+    ellipsoid,
+    enuToFixedScratch
+  );
+  const southwest = Matrix4.multiplyByPoint(
+    enuToFixed,
+    southwestEnu,
+    southwestScratch
+  );
+  const southeast = Matrix4.multiplyByPoint(
+    enuToFixed,
+    southeastEnu,
+    southeastScratch
+  );
+  const northeast = Matrix4.multiplyByPoint(
+    enuToFixed,
+    northeastEnu,
+    northeastScratch
+  );
+  const northwest = Matrix4.multiplyByPoint(
+    enuToFixed,
+    northwestEnu,
+    northwestScratch
+  );
+
+  const southwestCartographic = ellipsoid.cartesianToCartographic(
+    southwest,
+    southwestCartographicScratch
+  );
+  const southeastCartographic = ellipsoid.cartesianToCartographic(
+    southeast,
+    southeastCartographicScratch
+  );
+  const northeastCartographic = ellipsoid.cartesianToCartographic(
+    northeast,
+    northeastCartographicScratch
+  );
+  const northwestCartographic = ellipsoid.cartesianToCartographic(
+    northwest,
+    northwestCartographicScratch
+  );
+
+  // Account for date-line wrapping
+  if (southeastCartographic.longitude < southwestCartographic.longitude) {
+    southeastCartographic.longitude += CesiumMath.TWO_PI;
+  }
+  if (northeastCartographic.longitude < northwestCartographic.longitude) {
+    northeastCartographic.longitude += CesiumMath.TWO_PI;
+  }
+
+  const rectangle = new Rectangle(
+    CesiumMath.convertLongitudeRange(
+      Math.min(southwestCartographic.longitude, northwestCartographic.longitude)
+    ),
+    Math.min(southwestCartographic.latitude, southeastCartographic.latitude),
+    CesiumMath.convertLongitudeRange(
+      Math.max(northeastCartographic.longitude, southeastCartographic.longitude)
+    ),
+    Math.max(northeastCartographic.latitude, northwestCartographic.latitude)
+  );
+
+  // center isn't a member variable and doesn't seem to be used anywhere else in Terria
+  // rect.center = center;
+  return {
+    rectangle,
+    position: camera.position
+  };
+}
 
 function resurfaceIfUnderground(scene: Scene) {
   const camera = scene.camera;

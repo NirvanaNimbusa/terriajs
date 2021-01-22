@@ -70,12 +70,6 @@ const DropPedestrian: React.FC<DropPedestrianProps> = ({
       const position = new Cartesian2(ev.x, ev.y);
       const pickRay = scene.camera.getPickRay(position);
       const dropPosition = scene.globe.pick(pickRay, scene);
-      console.log(
-        scene.pickPosition(position),
-        Cartographic.fromCartesian(scene.pickPosition(position))
-        /* Cartographic.fromCartesian(dropPosition!),
-         * Cartographic.fromCartesian(scene.pickPosition(position)) */
-      );
     };
 
     eventHandler.setInputAction(

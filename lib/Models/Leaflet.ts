@@ -212,13 +212,16 @@ export default class Leaflet extends GlobeOrMap {
       };
 
       // Update mouse coords on mouse move
-      this.map.on("mousemove", (e: L.LeafletEvent) => {
-        const mouseEvent = <L.LeafletMouseEvent>e;
-        this.mouseCoords.updateCoordinatesFromLeaflet(
-          this.terria,
-          mouseEvent.originalEvent
-        );
-      });
+      this.map.on(
+        "mousemove",
+        action((e: L.LeafletEvent) => {
+          const mouseEvent = <L.LeafletMouseEvent>e;
+          this.mouseCoords.updateCoordinatesFromLeaflet(
+            this.terria,
+            mouseEvent.originalEvent
+          );
+        })
+      );
 
       if (this.terriaViewer.disableInteraction) {
         interactions.forEach(handler => handler.disable());
