@@ -115,6 +115,7 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
 
       movements.forEach(m => {
         let forwardDirection: Cartesian3;
+        let rightDirection: Cartesian3;
         switch (m) {
           case "moveForward":
             forwardDirection = projectVectorToSurface(
@@ -133,10 +134,20 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
             camera.move(forwardDirection, -moveRate);
             break;
           case "moveLeft":
-            camera.moveLeft(moveRate);
+            rightDirection = projectVectorToSurface(
+              camera.right,
+              camera.position,
+              cesium.scene.globe.ellipsoid
+            );
+            camera.move(rightDirection, -moveRate);
             break;
           case "moveRight":
-            camera.moveRight(moveRate);
+            rightDirection = projectVectorToSurface(
+              camera.right,
+              camera.position,
+              cesium.scene.globe.ellipsoid
+            );
+            camera.move(rightDirection, moveRate);
             break;
           case "moveUp":
             camera.moveUp(moveRate);
