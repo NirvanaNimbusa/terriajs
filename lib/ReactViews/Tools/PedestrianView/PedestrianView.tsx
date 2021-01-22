@@ -2,9 +2,19 @@ import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Cartesian2 from "terriajs-cesium/Source/Core/Cartesian2";
 import Cartesian3 from "terriajs-cesium/Source/Core/Cartesian3";
+import Cartographic from "terriajs-cesium/Source/Core/Cartographic";
+import Color from "terriajs-cesium/Source/Core/Color";
+import Ellipsoid from "terriajs-cesium/Source/Core/Ellipsoid";
+import HeadingPitchRoll from "terriajs-cesium/Source/Core/HeadingPitchRoll";
+import Ray from "terriajs-cesium/Source/Core/Ray";
 import sampleTerrainMostDetailed from "terriajs-cesium/Source/Core/sampleTerrainMostDetailed";
 import ScreenSpaceEventHandler from "terriajs-cesium/Source/Core/ScreenSpaceEventHandler";
 import ScreenSpaceEventType from "terriajs-cesium/Source/Core/ScreenSpaceEventType";
+import CallbackProperty from "terriajs-cesium/Source/DataSources/CallbackProperty";
+import CustomDataSource from "terriajs-cesium/Source/DataSources/CustomDataSource";
+import Entity from "terriajs-cesium/Source/DataSources/Entity";
+import DebugCameraPrimitive from "terriajs-cesium/Source/Scene/DebugCameraPrimitive";
+import DebugModelMatrixPrimitive from "terriajs-cesium/Source/Scene/DebugModelMatrixPrimitive";
 import Scene from "terriajs-cesium/Source/Scene/Scene";
 import TerriaError from "../../../Core/TerriaError";
 import Cesium from "../../../Models/Cesium";
@@ -75,7 +85,6 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
     };
 
     const onKeyDown = (ev: KeyboardEvent) => {
-      console.log(ev.code);
       if (keyMap[ev.code] !== undefined) movements.add(keyMap[ev.code]);
     };
 
@@ -105,24 +114,23 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
       const moveRate = height / 10;
 
       movements.forEach(m => {
-        console.log(
-          "**height**",
-          height,
-          cesium.scene.globe.ellipsoid.cartesianToCartographic(camera.position)
-            .height
-        );
-        sampleTerrainMostDetailed(scene.terrainProvider, [
-          camera.positionCartographic
-        ]).then(([carto]) =>
-          console.log("**most detailed height**", carto.height)
-        );
-
+        let forwardDirection: Cartesian3;
         switch (m) {
           case "moveForward":
-            camera.moveForward(moveRate);
+            forwardDirection = projectVectorToSurface(
+              camera.direction,
+              camera.position,
+              cesium.scene.globe.ellipsoid
+            );
+            camera.move(forwardDirection, moveRate);
             break;
           case "moveBackward":
-            camera.moveBackward(moveRate);
+            forwardDirection = projectVectorToSurface(
+              camera.direction,
+              camera.position,
+              cesium.scene.globe.ellipsoid
+            );
+            camera.move(forwardDirection, -moveRate);
             break;
           case "moveLeft":
             camera.moveLeft(moveRate);
@@ -143,6 +151,8 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
           default:
             return;
         }
+
+        resurfaceIfUnderground(scene);
       });
     };
 
@@ -158,10 +168,63 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
       eventHandler.destroy();
       disposeAnimation();
       scene.screenSpaceCameraController.enableInputs = true;
+      /* cesium.dataSourceDisplay.dataSources.remove(dataSource); */
     };
   });
   return null;
 };
+
+function resurfaceIfUnderground(scene: Scene) {
+  const camera = scene.camera;
+  sampleTerrainMostDetailed(scene.terrainProvider, [
+    camera.positionCartographic.clone()
+  ]).then(([terrainPosition]) => {
+    const heightFromTerrain =
+      camera.positionCartographic.height - terrainPosition.height;
+    if (heightFromTerrain < 1) {
+      const surfaceOffset = Cartesian3.multiplyByScalar(
+        camera.up,
+        -heightFromTerrain,
+        new Cartesian3()
+      );
+      Cartesian3.add(camera.position, surfaceOffset, camera.position);
+    }
+  });
+}
+
+/**
+ *  Vector = ProjectionOnSurfaceNormal + ProjectionOnSurface
+ *
+ */
+function projectVectorToSurface(
+  vector: Cartesian3,
+  position: Cartesian3,
+  ellipsoid: Ellipsoid
+) {
+  const surfaceNormal = ellipsoid.geodeticSurfaceNormal(
+    position,
+    new Cartesian3()
+  );
+  const magnitudeOfProjectionOnSurfaceNormal = Cartesian3.dot(
+    vector,
+    surfaceNormal
+  );
+  const projectionOnSurfaceNormal = Cartesian3.multiplyByScalar(
+    surfaceNormal,
+    magnitudeOfProjectionOnSurfaceNormal,
+    new Cartesian3()
+  );
+  const projectionOnSurface = Cartesian3.subtract(
+    vector,
+    projectionOnSurfaceNormal,
+    new Cartesian3()
+  );
+  return projectionOnSurface;
+}
+
+function verticalHeightFromTerrain(scene: Scene) {
+  return scene.globe.getHeight(scene.camera.positionCartographic);
+}
 
 function cameraLook(
   scene: Scene,
@@ -175,6 +238,7 @@ function cameraLook(
   const x = (currentMousePosition.x - startMousePosition.x) / width;
   const y = (currentMousePosition.y - startMousePosition.y) / height;
   const lookFactor = 0.05;
+
   camera.lookRight(x * lookFactor);
   camera.lookUp(y * lookFactor);
 }
