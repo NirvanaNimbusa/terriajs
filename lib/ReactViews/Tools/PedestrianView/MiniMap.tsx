@@ -34,7 +34,7 @@ class MappableMarker extends CreateModel(MappableTraits) implements Mappable {
     this.entity = new Entity({
       point: new PointGraphics({
         pixelSize: 10,
-        color: Color.BLUEVIOLET,
+        color: Color.BLUE,
         outlineColor: Color.WHITE,
         outlineWidth: 1
       }),

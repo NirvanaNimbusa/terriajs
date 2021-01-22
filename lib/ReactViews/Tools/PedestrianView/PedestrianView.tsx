@@ -97,7 +97,6 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
     };
 
     const onKeyDown = (ev: KeyboardEvent) => {
-      console.log("**shift**", ev.code);
       if (keyMap[ev.code] !== undefined) movements.add(keyMap[ev.code]);
     };
 
@@ -197,7 +196,7 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
         scene.screenSpaceCameraController.enableInputs = true;
       /* cesium.dataSourceDisplay.dataSources.remove(dataSource); */
     };
-  });
+  }, []);
   return null;
 };
 
