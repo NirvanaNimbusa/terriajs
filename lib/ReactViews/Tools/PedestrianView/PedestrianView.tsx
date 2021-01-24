@@ -4,14 +4,18 @@ import Cartesian2 from "terriajs-cesium/Source/Core/Cartesian2";
 import Cartesian3 from "terriajs-cesium/Source/Core/Cartesian3";
 import Cartographic from "terriajs-cesium/Source/Core/Cartographic";
 import Ellipsoid from "terriajs-cesium/Source/Core/Ellipsoid";
+import HeadingPitchRoll from "terriajs-cesium/Source/Core/HeadingPitchRoll";
 import CesiumMath from "terriajs-cesium/Source/Core/Math";
+import Matrix3 from "terriajs-cesium/Source/Core/Matrix3";
 import Matrix4 from "terriajs-cesium/Source/Core/Matrix4";
 import PerspectiveFrustum from "terriajs-cesium/Source/Core/PerspectiveFrustum";
+import Quaternion from "terriajs-cesium/Source/Core/Quaternion";
 import Rectangle from "terriajs-cesium/Source/Core/Rectangle";
 import sampleTerrainMostDetailed from "terriajs-cesium/Source/Core/sampleTerrainMostDetailed";
 import ScreenSpaceEventHandler from "terriajs-cesium/Source/Core/ScreenSpaceEventHandler";
 import ScreenSpaceEventType from "terriajs-cesium/Source/Core/ScreenSpaceEventType";
 import Transforms from "terriajs-cesium/Source/Core/Transforms";
+import Camera from "terriajs-cesium/Source/Scene/Camera";
 import Scene from "terriajs-cesium/Source/Scene/Scene";
 import TerriaError from "../../../Core/TerriaError";
 import Cesium from "../../../Models/Cesium";
@@ -386,10 +390,48 @@ function cameraLook(
   const height = canvas.height;
   const x = (currentMousePosition.x - startMousePosition.x) / width;
   const y = (currentMousePosition.y - startMousePosition.y) / height;
-  const lookFactor = 0.05;
+  const lookFactor = 0.1;
 
-  camera.lookRight(x * lookFactor);
-  camera.lookUp(y * lookFactor);
+  const ellipsoid = scene.globe.ellipsoid;
+  const surfaceNormal = ellipsoid.geodeticSurfaceNormal(
+    camera.position,
+    new Cartesian3()
+  );
+  const surfaceTangent = Cartesian3.cross(
+    surfaceNormal,
+    Cartesian3.UNIT_X,
+    new Cartesian3()
+  );
+
+  const right = projectVectorToSurface(
+    camera.right,
+    camera.position,
+    scene.globe.ellipsoid
+  );
+
+  camera.look(surfaceNormal, x * lookFactor);
+  camera.look(right, y * lookFactor);
+
+  /* camera.lookRight(x * lookFactor);
+   * camera.lookUp(y * lookFactor); */
+}
+
+function lookUp(camera: Camera, angle: number) {
+  const axis = camera.right;
+  const quaternion = Quaternion.fromAxisAngle(axis, -angle, new Quaternion());
+  const rotation = Matrix3.fromQuaternion(quaternion, new Matrix3());
+  Matrix3.multiplyByVector(rotation, camera.direction, camera.direction);
+  Matrix3.multiplyByVector(rotation, camera.up, camera.up);
+  /* Matrix3.multiplyByVector(rotation, camera.right, camera.right); */
+}
+
+function lookRight(camera: Camera, angle: number) {
+  const axis = camera.up;
+  const quaternion = Quaternion.fromAxisAngle(axis, -angle, new Quaternion());
+  const rotation = Matrix3.fromQuaternion(quaternion, new Matrix3());
+  Matrix3.multiplyByVector(rotation, camera.direction, camera.direction);
+  Matrix3.multiplyByVector(rotation, camera.up, camera.up);
+  /* Matrix3.multiplyByVector(rotation, camera.right, camera.right); */
 }
 
 export default PedestrianView;
