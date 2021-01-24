@@ -4,7 +4,6 @@ import Cartesian2 from "terriajs-cesium/Source/Core/Cartesian2";
 import Cartesian3 from "terriajs-cesium/Source/Core/Cartesian3";
 import Cartographic from "terriajs-cesium/Source/Core/Cartographic";
 import Ellipsoid from "terriajs-cesium/Source/Core/Ellipsoid";
-import HeadingPitchRoll from "terriajs-cesium/Source/Core/HeadingPitchRoll";
 import CesiumMath from "terriajs-cesium/Source/Core/Math";
 import Matrix3 from "terriajs-cesium/Source/Core/Matrix3";
 import Matrix4 from "terriajs-cesium/Source/Core/Matrix4";
@@ -127,7 +126,7 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
     const animate = () => {
       const camera = cesium.scene.camera;
       const height = camera.positionCartographic.height;
-      const moveRate = height / 10;
+      const moveRate = Math.max(0.1, height / 30);
 
       movements.forEach(m => {
         let forwardDirection: Cartesian3;
@@ -139,6 +138,7 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
               camera.position,
               cesium.scene.globe.ellipsoid
             );
+            console.log(moveRate);
             camera.move(forwardDirection, moveRate);
             break;
           case "moveBackward":
@@ -337,7 +337,7 @@ function resurfaceIfUnderground(scene: Scene) {
     if (heightFromTerrain < 1) {
       const surfaceOffset = Cartesian3.multiplyByScalar(
         camera.up,
-        -heightFromTerrain,
+        1 - heightFromTerrain,
         new Cartesian3()
       );
       Cartesian3.add(camera.position, surfaceOffset, camera.position);
