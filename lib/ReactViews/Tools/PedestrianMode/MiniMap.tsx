@@ -85,7 +85,7 @@ export function getViewFromScene(scene: Scene): MiniMapView {
   );
   return {
     rectangle,
-    position: camera.position
+    position: camera.position.clone()
   };
 }
 

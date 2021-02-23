@@ -2,12 +2,14 @@ import debounce from "lodash-es/debounce";
 import { runInAction } from "mobx";
 import Cartesian2 from "terriajs-cesium/Source/Core/Cartesian2";
 import Cartesian3 from "terriajs-cesium/Source/Core/Cartesian3";
+import Cartographic from "terriajs-cesium/Source/Core/Cartographic";
 import Ellipsoid from "terriajs-cesium/Source/Core/Ellipsoid";
 import EllipsoidTerrainProvider from "terriajs-cesium/Source/Core/EllipsoidTerrainProvider";
 import KeyboardEventModifier from "terriajs-cesium/Source/Core/KeyboardEventModifier";
 import sampleTerrainMostDetailed from "terriajs-cesium/Source/Core/sampleTerrainMostDetailed";
 import ScreenSpaceEventHandler from "terriajs-cesium/Source/Core/ScreenSpaceEventHandler";
 import ScreenSpaceEventType from "terriajs-cesium/Source/Core/ScreenSpaceEventType";
+import makeRealPromise from "../../../Core/makeRealPromise";
 import Cesium from "../../../Models/Cesium";
 
 type Movements =
@@ -29,7 +31,9 @@ const KeyMap: Record<KeyboardEvent["code"], Movements> = {
   ShiftRight: "down"
 };
 
-type PedestrianMode = "fly" | "walk";
+type Mode = "fly" | "walk";
+
+const moveScratch = new Cartesian3();
 
 export default class MovementsController {
   private destroyEventHandlers?: () => void;
@@ -38,23 +42,34 @@ export default class MovementsController {
   private startMousePosition?: Cartesian2;
   private currentMousePosition?: Cartesian2;
 
-  private mode: PedestrianMode = "walk";
+  private mode: Mode = "walk";
   private readonly walkingHeightFromTerrain = 1.5; // metres
   private readonly minFlyHeightFromTerrain = 1.5; // metres
 
-  private readonly debouncedMaintainHeightFromTerrain: () => void;
-  private currentHeightFromTerrain = 0;
+  private readonly debouncedUpdateTerrainHeight: () => void;
+  private currentTerrainHeight = 0;
+
+  private terrainRequests = 0;
 
   constructor(readonly cesium: Cesium, readonly onMove: () => void) {
-    this.debouncedMaintainHeightFromTerrain = debounce(
-      this._maintainHeightFromTerrain.bind(this),
-      30,
-      { maxWait: 30 }
+    this.debouncedUpdateTerrainHeight = debounce(
+      this._updateTerrainHeight.bind(this),
+      250,
+      { maxWait: 250 }
     );
   }
 
   get scene() {
     return this.cesium.scene;
+  }
+
+  get currentHeightFromTerrain(): number {
+    return parseFloat(
+      (
+        this.scene.camera.positionCartographic.height -
+        this.currentTerrainHeight
+      ).toPrecision(3)
+    );
   }
 
   get moveRate() {
@@ -108,7 +123,7 @@ export default class MovementsController {
     const ellipsoid = this.scene.globe.ellipsoid;
     const surfaceNormal = ellipsoid.geodeticSurfaceNormal(
       camera.position,
-      new Cartesian3()
+      moveScratch
     );
     camera.move(surfaceNormal, this.moveRate);
     if (this.mode !== "fly") {
@@ -121,7 +136,7 @@ export default class MovementsController {
     const ellipsoid = this.scene.globe.ellipsoid;
     const surfaceNormal = ellipsoid.geodeticSurfaceNormal(
       camera.position,
-      new Cartesian3()
+      moveScratch
     );
     camera.move(surfaceNormal, -this.moveRate);
     if (
@@ -153,7 +168,7 @@ export default class MovementsController {
     const ellipsoid = this.scene.globe.ellipsoid;
     const surfaceNormal = ellipsoid.geodeticSurfaceNormal(
       camera.position,
-      new Cartesian3()
+      moveScratch
     );
 
     const right = projectVectorToSurface(
@@ -166,41 +181,80 @@ export default class MovementsController {
     camera.look(right, y * lookFactor);
   }
 
-  private _maintainHeightFromTerrain() {
+  private _updateTerrainHeight() {
     const camera = this.scene.camera;
     const terrainProvider = this.scene.terrainProvider;
 
-    const onTerrainHeight = (terrainHeight: number) => {
-      const heightFromTerrain =
-        camera.positionCartographic.height - terrainHeight;
-      let moveUpBy = 0;
-      if (this.mode === "walk") {
-        moveUpBy = this.walkingHeightFromTerrain - heightFromTerrain;
-      } else if (
-        this.mode === "fly" &&
-        heightFromTerrain < this.minFlyHeightFromTerrain
-      ) {
-        moveUpBy = this.minFlyHeightFromTerrain - heightFromTerrain;
-      }
-      if (moveUpBy !== 0) {
-        const surfaceOffset = Cartesian3.multiplyByScalar(
-          camera.up,
-          moveUpBy,
-          new Cartesian3()
-        );
-        Cartesian3.add(camera.position, surfaceOffset, camera.position);
-      }
-      console.log(this.mode, moveUpBy);
-      this.currentHeightFromTerrain =
-        camera.positionCartographic.height - terrainHeight;
-    };
+    /* const onTerrainHeight = (terrainHeight: number) => {
+     *   const heightFromTerrain =
+     *     camera.positionCartographic.height - terrainHeight;
+     *   let moveUpBy = 0;
+     *   if (this.mode === "walk") {
+     *     moveUpBy = this.walkingHeightFromTerrain - heightFromTerrain;
+     *   } else if (
+     *     this.mode === "fly" &&
+     *     heightFromTerrain < this.minFlyHeightFromTerrain
+     *   ) {
+     *     moveUpBy = this.minFlyHeightFromTerrain - heightFromTerrain;
+     *   }
+     *   if (moveUpBy !== 0) {
+     *     const surfaceOffset = Cartesian3.multiplyByScalar(
+     *       camera.up,
+     *       moveUpBy,
+     *       moveScratch
+     *     );
+     *     Cartesian3.add(camera.position, surfaceOffset, camera.position);
+     *   }
+     *   this.currentHeightFromTerrain =
+     *     camera.positionCartographic.height - terrainHeight;
+     * }; */
 
     if (terrainProvider instanceof EllipsoidTerrainProvider) {
-      onTerrainHeight(0);
-    } else {
-      sampleTerrainMostDetailed(terrainProvider, [
-        camera.positionCartographic.clone()
-      ]).then(([terrainPosition]) => onTerrainHeight(terrainPosition.height));
+      this.currentTerrainHeight = 0;
+    } else if (this.terrainRequests < 5) {
+      this.terrainRequests += 1;
+      makeRealPromise<Cartographic[]>(
+        sampleTerrainMostDetailed(terrainProvider, [
+          camera.positionCartographic.clone()
+        ])
+      )
+        .then(([terrainPosition]) => {
+          this.currentTerrainHeight = terrainPosition.height;
+        })
+        .finally(() => {
+          this.terrainRequests -= 1;
+        });
+    }
+  }
+
+  animateHeightChange() {
+    const camera = this.scene.camera;
+    const currentHeightFromTerrain = this.currentHeightFromTerrain;
+    let moveUpStep = 0;
+    if (
+      this.mode === "walk" &&
+      currentHeightFromTerrain !== this.walkingHeightFromTerrain
+    ) {
+      const fullStep =
+        this.walkingHeightFromTerrain - this.currentHeightFromTerrain;
+      if (fullStep >= 0)
+        moveUpStep = Math.min(fullStep, (fullStep * this.moveRate) / 2);
+      else moveUpStep = Math.max(fullStep, (fullStep * this.moveRate) / 2);
+    } else if (
+      this.mode === "fly" &&
+      currentHeightFromTerrain < this.minFlyHeightFromTerrain
+    ) {
+      const fullStep = this.minFlyHeightFromTerrain - currentHeightFromTerrain;
+      moveUpStep = Math.min(fullStep, fullStep / this.moveRate);
+    }
+
+    if (moveUpStep !== 0) {
+      const surfaceOffset = Cartesian3.multiplyByScalar(
+        camera.up,
+        moveUpStep,
+        moveScratch
+      );
+      Cartesian3.add(camera.position, surfaceOffset, camera.position);
     }
   }
 
@@ -232,8 +286,9 @@ export default class MovementsController {
           return;
       }
       this.onMove();
-      this.debouncedMaintainHeightFromTerrain();
+      this.debouncedUpdateTerrainHeight();
     });
+    this.animateHeightChange();
   }
 
   setupKeyMap() {
