@@ -54,7 +54,7 @@ function makeSafeName(name) {
 
 function createIngress(branches) {
     return {
-        apiVersion: 'apps/v1',
+        apiVersion: 'extensions/v1beta',
         kind: 'Ingress',
         metadata: {
             name: 'terriajs-ci',
