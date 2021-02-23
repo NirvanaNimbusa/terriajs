@@ -57,6 +57,8 @@ export default class MovementsController {
       250,
       { maxWait: 250 }
     );
+    this.currentTerrainHeight = this.scene.camera.positionCartographic.height;
+    this.debouncedUpdateTerrainHeight();
   }
 
   get scene() {
