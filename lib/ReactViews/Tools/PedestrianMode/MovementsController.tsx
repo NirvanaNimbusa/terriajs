@@ -1,7 +1,9 @@
+import debounce from "lodash-es/debounce";
 import { runInAction } from "mobx";
 import Cartesian2 from "terriajs-cesium/Source/Core/Cartesian2";
 import Cartesian3 from "terriajs-cesium/Source/Core/Cartesian3";
 import Ellipsoid from "terriajs-cesium/Source/Core/Ellipsoid";
+import EllipsoidTerrainProvider from "terriajs-cesium/Source/Core/EllipsoidTerrainProvider";
 import KeyboardEventModifier from "terriajs-cesium/Source/Core/KeyboardEventModifier";
 import sampleTerrainMostDetailed from "terriajs-cesium/Source/Core/sampleTerrainMostDetailed";
 import ScreenSpaceEventHandler from "terriajs-cesium/Source/Core/ScreenSpaceEventHandler";
@@ -27,6 +29,8 @@ const KeyMap: Record<KeyboardEvent["code"], Movements> = {
   ShiftRight: "down"
 };
 
+type PedestrianMode = "fly" | "walk";
+
 export default class MovementsController {
   private destroyEventHandlers?: () => void;
   private activeMovements = new Set<Movements>();
@@ -34,14 +38,27 @@ export default class MovementsController {
   private startMousePosition?: Cartesian2;
   private currentMousePosition?: Cartesian2;
 
-  constructor(readonly cesium: Cesium, readonly onMove: () => void) {}
+  private mode: PedestrianMode = "walk";
+  private readonly walkingHeightFromTerrain = 1.5; // metres
+  private readonly minFlyHeightFromTerrain = 1.5; // metres
+
+  private readonly debouncedMaintainHeightFromTerrain: () => void;
+  private currentHeightFromTerrain = 0;
+
+  constructor(readonly cesium: Cesium, readonly onMove: () => void) {
+    this.debouncedMaintainHeightFromTerrain = debounce(
+      this._maintainHeightFromTerrain.bind(this),
+      30,
+      { maxWait: 30 }
+    );
+  }
 
   get scene() {
     return this.cesium.scene;
   }
 
   get moveRate() {
-    const height = this.scene.camera.positionCartographic.height;
+    const height = Math.abs(this.currentHeightFromTerrain);
     const moveRate = Math.max(0.05, height / 100);
     return moveRate;
   }
@@ -94,6 +111,9 @@ export default class MovementsController {
       new Cartesian3()
     );
     camera.move(surfaceNormal, this.moveRate);
+    if (this.mode !== "fly") {
+      this.mode = "fly";
+    }
   }
 
   moveDown() {
@@ -104,6 +124,12 @@ export default class MovementsController {
       new Cartesian3()
     );
     camera.move(surfaceNormal, -this.moveRate);
+    if (
+      this.mode !== "walk" &&
+      this.currentHeightFromTerrain <= this.walkingHeightFromTerrain
+    ) {
+      this.mode = "walk";
+    }
   }
 
   look() {
@@ -140,25 +166,42 @@ export default class MovementsController {
     camera.look(right, y * lookFactor);
   }
 
-  /**
-   * Try to resurface if the camera goes underground.
-   */
-  resurfaceIfUnderground() {
+  private _maintainHeightFromTerrain() {
     const camera = this.scene.camera;
-    sampleTerrainMostDetailed(this.scene.terrainProvider, [
-      camera.positionCartographic.clone()
-    ]).then(([terrainPosition]) => {
+    const terrainProvider = this.scene.terrainProvider;
+
+    const onTerrainHeight = (terrainHeight: number) => {
       const heightFromTerrain =
-        camera.positionCartographic.height - terrainPosition.height;
-      if (heightFromTerrain < 1) {
+        camera.positionCartographic.height - terrainHeight;
+      let moveUpBy = 0;
+      if (this.mode === "walk") {
+        moveUpBy = this.walkingHeightFromTerrain - heightFromTerrain;
+      } else if (
+        this.mode === "fly" &&
+        heightFromTerrain < this.minFlyHeightFromTerrain
+      ) {
+        moveUpBy = this.minFlyHeightFromTerrain - heightFromTerrain;
+      }
+      if (moveUpBy !== 0) {
         const surfaceOffset = Cartesian3.multiplyByScalar(
           camera.up,
-          1 - heightFromTerrain,
+          moveUpBy,
           new Cartesian3()
         );
         Cartesian3.add(camera.position, surfaceOffset, camera.position);
       }
-    });
+      console.log(this.mode, moveUpBy);
+      this.currentHeightFromTerrain =
+        camera.positionCartographic.height - terrainHeight;
+    };
+
+    if (terrainProvider instanceof EllipsoidTerrainProvider) {
+      onTerrainHeight(0);
+    } else {
+      sampleTerrainMostDetailed(terrainProvider, [
+        camera.positionCartographic.clone()
+      ]).then(([terrainPosition]) => onTerrainHeight(terrainPosition.height));
+    }
   }
 
   animate() {
@@ -189,7 +232,7 @@ export default class MovementsController {
           return;
       }
       this.onMove();
-      this.resurfaceIfUnderground();
+      this.debouncedMaintainHeightFromTerrain();
     });
   }
 
