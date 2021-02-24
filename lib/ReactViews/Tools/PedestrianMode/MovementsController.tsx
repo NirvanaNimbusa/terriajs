@@ -318,7 +318,7 @@ export default class MovementsController {
     const heightChange = Math.abs(currentHeight - nextHeight);
     const canMove = heightChange < 5;
 
-    console.log("**canMoveTo**", canMove, heightChange);
+    //console.log("**canMoveTo**", canMove, heightChange);
 
     return canMove;
   }
