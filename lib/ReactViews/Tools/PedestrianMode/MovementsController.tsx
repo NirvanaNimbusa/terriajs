@@ -12,14 +12,11 @@ import ScreenSpaceEventType from "terriajs-cesium/Source/Core/ScreenSpaceEventTy
 import makeRealPromise from "../../../Core/makeRealPromise";
 import Cesium from "../../../Models/Cesium";
 
-type Movements =
-  | "forward"
-  | "backward"
-  | "left"
-  | "right"
-  | "up"
-  | "down"
-  | "look";
+const horizontalMovements = ["forward", "backward", "left", "right"] as const;
+
+type HorizontalMovements = typeof horizontalMovements[number];
+
+type Movements = HorizontalMovements | "up" | "down" | "look";
 
 const KeyMap: Record<KeyboardEvent["code"], Movements> = {
   KeyW: "forward",
@@ -75,50 +72,127 @@ export default class MovementsController {
   }
 
   get moveRate() {
+    if (this.mode === "walk") return 0.2;
     const height = Math.abs(this.currentHeightFromTerrain);
-    const moveRate = Math.max(0.05, height / 100);
+    const moveRate = Math.max(0.05, height / 20);
+    //console.log(moveRate, height / 10, height / 20, height / 30, height / 50);
     return moveRate;
   }
 
-  moveForward() {
-    const camera = this.scene.camera;
-    const direction = projectVectorToSurface(
-      camera.direction,
-      camera.position,
+  moveHorizontally(
+    position: Cartesian3,
+    direction: Cartesian3,
+    moveRate: number
+  ): Cartesian3 {
+    const directionAlongSurface = projectVectorToSurface(
+      direction,
+      position,
       this.scene.globe.ellipsoid
     );
-    camera.move(direction, this.moveRate);
+
+    Cartesian3.multiplyByScalar(directionAlongSurface, moveRate, moveScratch);
+    const nextPosition = Cartesian3.add(
+      position,
+      moveScratch,
+      new Cartesian3()
+    );
+    return nextPosition;
   }
 
-  moveBackward() {
-    const camera = this.scene.camera;
-    const direction = projectVectorToSurface(
-      camera.direction,
-      camera.position,
-      this.scene.globe.ellipsoid
+  moveForward(currentPosition: Cartesian3): Cartesian3 {
+    return this.moveHorizontally(
+      currentPosition,
+      this.scene.camera.direction,
+      this.moveRate
     );
-    camera.move(direction, -this.moveRate);
   }
 
-  moveLeft() {
-    const camera = this.scene.camera;
-    const direction = projectVectorToSurface(
-      camera.right,
-      camera.position,
-      this.scene.globe.ellipsoid
+  moveBackward(currentPosition: Cartesian3) {
+    return this.moveHorizontally(
+      currentPosition,
+      this.scene.camera.direction,
+      -this.moveRate
     );
-    camera.move(direction, -this.moveRate / 2);
   }
 
-  moveRight() {
-    const camera = this.scene.camera;
-    const direction = projectVectorToSurface(
-      camera.right,
-      camera.position,
-      this.scene.globe.ellipsoid
+  moveLeft(currentPosition: Cartesian3) {
+    return this.moveHorizontally(
+      currentPosition,
+      this.scene.camera.right,
+      -this.moveRate / 2
     );
-    camera.move(direction, this.moveRate / 2);
   }
+
+  moveRight(currentPosition: Cartesian3) {
+    return this.moveHorizontally(
+      currentPosition,
+      this.scene.camera.right,
+      this.moveRate / 2
+    );
+  }
+
+  /* moveForward() {
+   *   const camera = this.scene.camera;
+   *   const direction = projectVectorToSurface(
+   *     camera.direction,
+   *     camera.position,
+   *     this.scene.globe.ellipsoid
+   *   );
+
+   *   Cartesian3.multiplyByScalar(direction, this.moveRate, moveScratch);
+   *   const forwardPosition = Cartesian3.add(
+   *     camera.position,
+   *     moveScratch,
+   *     new Cartesian3()
+   *   );
+   *   if (this.scene.clampToHeightSupported) {
+   *     const currentScenePosition = this.scene.clampToHeight(camera.position);
+   *     const forwardScenePosition = this.scene.clampToHeight(forwardPosition);
+   *     if (currentScenePosition && forwardScenePosition) {
+   *       const currentHeight = Cartographic.fromCartesian(currentScenePosition)
+   *         .height;
+   *       const forwardHeight = Cartographic.fromCartesian(forwardScenePosition)
+   *         .height;
+   *       const stepHeight = Math.abs(forwardHeight - currentHeight);
+   *       //console.log(stepHeight, stepHeight > 5);
+   *       if (stepHeight > 5) {
+   *         return;
+   *       }
+   *     }
+   *   }
+
+   *   camera.position = forwardPosition;
+   * }
+
+   * moveBackward() {
+   *   const camera = this.scene.camera;
+   *   const direction = projectVectorToSurface(
+   *     camera.direction,
+   *     camera.position,
+   *     this.scene.globe.ellipsoid
+   *   );
+   *   camera.move(direction, -this.moveRate);
+   * }
+
+   * moveLeft() {
+   *   const camera = this.scene.camera;
+   *   const direction = projectVectorToSurface(
+   *     camera.right,
+   *     camera.position,
+   *     this.scene.globe.ellipsoid
+   *   );
+   *   camera.move(direction, -this.moveRate / 2);
+   * }
+
+   * moveRight() {
+   *   const camera = this.scene.camera;
+   *   const direction = projectVectorToSurface(
+   *     camera.right,
+   *     camera.position,
+   *     this.scene.globe.ellipsoid
+   *   );
+   *   camera.move(direction, this.moveRate / 2);
+   * } */
 
   moveUp() {
     const camera = this.scene.camera;
@@ -187,32 +261,18 @@ export default class MovementsController {
     const camera = this.scene.camera;
     const terrainProvider = this.scene.terrainProvider;
 
-    /* const onTerrainHeight = (terrainHeight: number) => {
-     *   const heightFromTerrain =
-     *     camera.positionCartographic.height - terrainHeight;
-     *   let moveUpBy = 0;
-     *   if (this.mode === "walk") {
-     *     moveUpBy = this.walkingHeightFromTerrain - heightFromTerrain;
-     *   } else if (
-     *     this.mode === "fly" &&
-     *     heightFromTerrain < this.minFlyHeightFromTerrain
-     *   ) {
-     *     moveUpBy = this.minFlyHeightFromTerrain - heightFromTerrain;
-     *   }
-     *   if (moveUpBy !== 0) {
-     *     const surfaceOffset = Cartesian3.multiplyByScalar(
-     *       camera.up,
-     *       moveUpBy,
-     *       moveScratch
-     *     );
-     *     Cartesian3.add(camera.position, surfaceOffset, camera.position);
-     *   }
-     *   this.currentHeightFromTerrain =
-     *     camera.positionCartographic.height - terrainHeight;
-     * }; */
+    let sceneHeight: number | undefined;
+    if (this.mode === "walk" && this.scene.clampToHeightSupported) {
+      const positionOnSceneSurface = this.scene.clampToHeight(
+        camera.position.clone()
+      );
+      if (positionOnSceneSurface) {
+        sceneHeight = Cartographic.fromCartesian(positionOnSceneSurface).height;
+      }
+    }
 
     if (terrainProvider instanceof EllipsoidTerrainProvider) {
-      this.currentTerrainHeight = 0;
+      this.currentTerrainHeight = sceneHeight ?? 0;
     } else if (this.terrainRequests < 5) {
       this.terrainRequests += 1;
       makeRealPromise<Cartographic[]>(
@@ -221,12 +281,46 @@ export default class MovementsController {
         ])
       )
         .then(([terrainPosition]) => {
-          this.currentTerrainHeight = terrainPosition.height;
+          this.currentTerrainHeight =
+            sceneHeight === undefined
+              ? terrainPosition.height
+              : Math.max(terrainPosition.height, sceneHeight);
+          /* console.log(
+           *   sceneHeight,
+           *   terrainPosition.height,
+           *   this.currentTerrainHeight
+           * ); */
         })
         .finally(() => {
           this.terrainRequests -= 1;
         });
     }
+  }
+
+  canMoveTo(fromPosition: Cartesian3, toPosition: Cartesian3) {
+    const scene = this.scene;
+
+    if (!scene.clampToHeightSupported) return true;
+
+    const fromPositionOnSurface = this.scene.clampToHeight(fromPosition);
+    const toPositionOnSurface = this.scene.clampToHeight(toPosition);
+
+    if (
+      fromPositionOnSurface === undefined ||
+      toPositionOnSurface === undefined
+    ) {
+      return true;
+    }
+
+    const currentHeight = Cartographic.fromCartesian(fromPositionOnSurface)
+      .height;
+    const nextHeight = Cartographic.fromCartesian(toPositionOnSurface).height;
+    const heightChange = Math.abs(currentHeight - nextHeight);
+    const canMove = heightChange < 5;
+
+    console.log("**canMoveTo**", canMove, heightChange);
+
+    return canMove;
   }
 
   animateHeightChange() {
@@ -237,11 +331,11 @@ export default class MovementsController {
       this.mode === "walk" &&
       currentHeightFromTerrain !== this.walkingHeightFromTerrain
     ) {
+      const moveRate = this.moveRate / 4;
       const fullStep =
         this.walkingHeightFromTerrain - this.currentHeightFromTerrain;
-      if (fullStep >= 0)
-        moveUpStep = Math.min(fullStep, (fullStep * this.moveRate) / 2);
-      else moveUpStep = Math.max(fullStep, (fullStep * this.moveRate) / 2);
+      if (fullStep >= 0) moveUpStep = Math.min(fullStep, fullStep * moveRate);
+      else moveUpStep = Math.max(fullStep, fullStep * moveRate);
     } else if (
       this.mode === "fly" &&
       currentHeightFromTerrain < this.minFlyHeightFromTerrain
@@ -261,20 +355,61 @@ export default class MovementsController {
   }
 
   animate() {
+    const activeHorizontalMovements: HorizontalMovements[] = horizontalMovements.filter(
+      m => this.activeMovements.has(m)
+    );
+
+    if (activeHorizontalMovements.length > 0) {
+      const currentPosition = this.scene.camera.position.clone();
+      const nextHorizontalMovePosition = horizontalMovements.reduce(
+        (position, direction) => {
+          let nextPosition: Cartesian3;
+          if (this.activeMovements.has(direction) === false) {
+            return position;
+          }
+          switch (direction) {
+            case "forward":
+              nextPosition = this.moveForward(position);
+              break;
+            case "backward":
+              nextPosition = this.moveBackward(position);
+              break;
+            case "left":
+              nextPosition = this.moveLeft(position);
+              break;
+            case "right":
+              nextPosition = this.moveRight(position);
+              break;
+          }
+          return nextPosition;
+        },
+        currentPosition.clone()
+      );
+
+      if (this.mode === "fly") {
+        this.scene.camera.position = nextHorizontalMovePosition;
+      } else if (
+        this.mode === "walk" &&
+        this.canMoveTo(currentPosition, nextHorizontalMovePosition)
+      ) {
+        this.scene.camera.position = nextHorizontalMovePosition;
+      }
+    }
+
     this.activeMovements.forEach(m => {
       switch (m) {
-        case "forward":
-          this.moveForward();
-          break;
-        case "backward":
-          this.moveBackward();
-          break;
-        case "left":
-          this.moveLeft();
-          break;
-        case "right":
-          this.moveRight();
-          break;
+        /* case "forward":
+         *   this.moveForward();
+         *   break;
+         * case "backward":
+         *   this.moveBackward();
+         *   break;
+         * case "left":
+         *   this.moveLeft();
+         *   break;
+         * case "right":
+         *   this.moveRight();
+         *   break; */
         case "up":
           this.moveUp();
           break;
@@ -284,12 +419,14 @@ export default class MovementsController {
         case "look":
           this.look();
           break;
-        default:
-          return;
       }
+    });
+
+    if (this.activeMovements.size > 0) {
       this.onMove();
       this.debouncedUpdateTerrainHeight();
-    });
+    }
+
     this.animateHeightChange();
   }
 
