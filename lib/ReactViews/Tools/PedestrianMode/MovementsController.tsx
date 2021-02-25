@@ -11,6 +11,7 @@ import ScreenSpaceEventHandler from "terriajs-cesium/Source/Core/ScreenSpaceEven
 import ScreenSpaceEventType from "terriajs-cesium/Source/Core/ScreenSpaceEventType";
 import makeRealPromise from "../../../Core/makeRealPromise";
 import Cesium from "../../../Models/Cesium";
+import { MovementControlsProps } from "./MovementControls";
 
 const horizontalMovements = ["forward", "backward", "left", "right"] as const;
 
@@ -30,6 +31,8 @@ const KeyMap: Record<KeyboardEvent["code"], Movements> = {
 
 type Mode = "fly" | "walk";
 
+type ClampMode = "clampToScene" | "clampToTerrain";
+
 const moveScratch = new Cartesian3();
 
 export default class MovementsController {
@@ -39,7 +42,8 @@ export default class MovementsController {
   private startMousePosition?: Cartesian2;
   private currentMousePosition?: Cartesian2;
 
-  private mode: Mode = "walk";
+  private mode: MovementControlsProps["mode"] = ["walk", "clampToScene"];
+
   private readonly walkingHeightFromTerrain = 1.5; // metres
   private readonly minFlyHeightFromTerrain = 1.5; // metres
 
@@ -48,7 +52,11 @@ export default class MovementsController {
 
   private terrainRequests = 0;
 
-  constructor(readonly cesium: Cesium, readonly onMove: () => void) {
+  constructor(
+    readonly cesium: Cesium,
+    readonly onMove: () => void,
+    readonly onSwitchMode: (newMode: MovementControlsProps["mode"]) => void
+  ) {
     this.debouncedUpdateTerrainHeight = debounce(
       this._updateTerrainHeight.bind(this),
       250,
@@ -56,6 +64,11 @@ export default class MovementsController {
     );
     this.currentTerrainHeight = this.scene.camera.positionCartographic.height;
     this.debouncedUpdateTerrainHeight();
+  }
+
+  setMode(mode: MovementControlsProps["mode"]) {
+    this.mode = mode;
+    this._updateTerrainHeight(true);
   }
 
   get scene() {
@@ -72,7 +85,7 @@ export default class MovementsController {
   }
 
   get moveRate() {
-    if (this.mode === "walk") return 0.2;
+    if (this.mode[0] === "walk") return 0.2;
     const height = Math.abs(this.currentHeightFromTerrain);
     const moveRate = Math.max(0.05, height / 20);
     //console.log(moveRate, height / 10, height / 20, height / 30, height / 50);
@@ -202,8 +215,9 @@ export default class MovementsController {
       moveScratch
     );
     camera.move(surfaceNormal, this.moveRate);
-    if (this.mode !== "fly") {
-      this.mode = "fly";
+    if (this.mode[0] !== "fly") {
+      this.mode = ["fly"];
+      this.onSwitchMode(this.mode);
     }
   }
 
@@ -216,10 +230,11 @@ export default class MovementsController {
     );
     camera.move(surfaceNormal, -this.moveRate);
     if (
-      this.mode !== "walk" &&
+      this.mode[0] !== "walk" &&
       this.currentHeightFromTerrain <= this.walkingHeightFromTerrain
     ) {
-      this.mode = "walk";
+      this.mode = ["walk", "clampToScene"];
+      this.onSwitchMode(this.mode);
     }
   }
 
@@ -257,12 +272,12 @@ export default class MovementsController {
     camera.look(right, y * lookFactor);
   }
 
-  private _updateTerrainHeight() {
+  private _updateTerrainHeight(force?: boolean) {
     const camera = this.scene.camera;
     const terrainProvider = this.scene.terrainProvider;
 
     let sceneHeight: number | undefined;
-    if (this.mode === "walk" && this.scene.clampToHeightSupported) {
+    if (this.mode[0] === "walk" && this.scene.clampToHeightSupported) {
       const positionOnSceneSurface = this.scene.clampToHeight(
         camera.position.clone()
       );
@@ -273,7 +288,7 @@ export default class MovementsController {
 
     if (terrainProvider instanceof EllipsoidTerrainProvider) {
       this.currentTerrainHeight = sceneHeight ?? 0;
-    } else if (this.terrainRequests < 5) {
+    } else if (force || this.terrainRequests < 5) {
       this.terrainRequests += 1;
       makeRealPromise<Cartographic[]>(
         sampleTerrainMostDetailed(terrainProvider, [
@@ -281,10 +296,22 @@ export default class MovementsController {
         ])
       )
         .then(([terrainPosition]) => {
-          this.currentTerrainHeight =
-            sceneHeight === undefined
-              ? terrainPosition.height
-              : Math.max(terrainPosition.height, sceneHeight);
+          const terrainHeight = terrainPosition.height;
+          let newTerrainHeight: number;
+          if (this.mode[0] === "walk") {
+            const walkMode = this.mode[1];
+            if (walkMode === "clampToScene" && sceneHeight !== undefined)
+              newTerrainHeight = sceneHeight;
+            else if (walkMode === "clampToTerrain")
+              newTerrainHeight = terrainHeight;
+            else
+              newTerrainHeight = sceneHeight
+                ? Math.max(sceneHeight, terrainHeight)
+                : terrainHeight;
+          } else {
+            newTerrainHeight = terrainHeight;
+          }
+          this.currentTerrainHeight = newTerrainHeight;
           /* console.log(
            *   sceneHeight,
            *   terrainPosition.height,
@@ -328,7 +355,7 @@ export default class MovementsController {
     const currentHeightFromTerrain = this.currentHeightFromTerrain;
     let moveUpStep = 0;
     if (
-      this.mode === "walk" &&
+      this.mode[0] === "walk" &&
       currentHeightFromTerrain !== this.walkingHeightFromTerrain
     ) {
       const moveRate = this.moveRate / 4;
@@ -337,7 +364,7 @@ export default class MovementsController {
       if (fullStep >= 0) moveUpStep = Math.min(fullStep, fullStep * moveRate);
       else moveUpStep = Math.max(fullStep, fullStep * moveRate);
     } else if (
-      this.mode === "fly" &&
+      this.mode[0] === "fly" &&
       currentHeightFromTerrain < this.minFlyHeightFromTerrain
     ) {
       const fullStep = this.minFlyHeightFromTerrain - currentHeightFromTerrain;
@@ -386,10 +413,10 @@ export default class MovementsController {
         currentPosition.clone()
       );
 
-      if (this.mode === "fly") {
+      if (this.mode[0] === "fly") {
         this.scene.camera.position = nextHorizontalMovePosition;
       } else if (
-        this.mode === "walk" &&
+        this.mode[0] === "walk" &&
         this.canMoveTo(currentPosition, nextHorizontalMovePosition)
       ) {
         this.scene.camera.position = nextHorizontalMovePosition;

@@ -6,7 +6,7 @@ import ViewState from "../../../ReactViewModels/ViewState";
 import PositionRightOfWorkbench from "../../Workbench/PositionRightOfWorkbench";
 import DropPedestrianToGround from "./DropPedestrianToGround";
 import MiniMap, { getViewFromScene, MiniMapView } from "./MiniMap";
-import MovementControls from "./MovementControls";
+import MovementControls, { MovementControlsProps } from "./MovementControls";
 
 const PEDESTRIAN_HEIGHT_IN_METRES = 1.5;
 
@@ -19,6 +19,10 @@ const PedestrianMode: React.FC<PedestrianModeProps> = observer(props => {
   const { viewState, cesium } = props;
   const [isDropped, setIsDropped] = useState<boolean>(false);
   const [view, setView] = useState<MiniMapView | undefined>();
+  const [mode, setMode] = useState<MovementControlsProps["mode"]>([
+    "walk",
+    "clampToScene"
+  ]);
 
   const onDropCancelled = () => viewState.closeTool();
   const updateView = () => setView(getViewFromScene(cesium.scene));
@@ -36,7 +40,12 @@ const PedestrianMode: React.FC<PedestrianModeProps> = observer(props => {
       {isDropped && (
         <>
           <ControlsContainer viewState={viewState}>
-            <MovementControls cesium={cesium} onMove={updateView} />
+            <MovementControls
+              cesium={cesium}
+              onMove={updateView}
+              mode={mode}
+              onChangeMode={setMode}
+            />
           </ControlsContainer>
           <MiniMapContainer viewState={viewState}>
             <MiniMap
