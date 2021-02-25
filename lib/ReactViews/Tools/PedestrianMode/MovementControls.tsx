@@ -23,6 +23,8 @@ export type MovementControlsProps = {
     | ["walk", "clampToMax"]
     | ["fly"];
   onChangeMode: (newMode: MovementControlsProps["mode"]) => void;
+  detectCollision: boolean;
+  onChangeDetectCollision: (newValue: boolean) => void;
 };
 
 const MovementControls: React.FC<MovementControlsProps> = props => {
@@ -48,11 +50,16 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
     movementsController.setMode(mode);
   }, [mode]);
 
+  useEffect(() => {
+    movementsController.detectCollision = props.detectCollision;
+  }, [props.detectCollision]);
+
   const isWalking = mode[0] === "walk";
   const isFlying = mode[0] === "fly";
   const clampToScene = mode[1] === "clampToScene";
   const clampToTerrain = mode[1] === "clampToTerrain";
   const clampToMax = mode[1] === "clampToMax";
+  const detectCollision = props.detectCollision;
 
   const onModeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const onChangeMode = props.onChangeMode;
@@ -62,6 +69,8 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
        * if (input.value === "fly") onChangeMode(["fly"]); */
     } else if (input.name === "clampMode") {
       onChangeMode(["walk", input.value as any]);
+    } else if (input.name === "detectCollision") {
+      props.onChangeDetectCollision(input.checked);
     }
   };
 
@@ -118,6 +127,15 @@ const MovementControls: React.FC<MovementControlsProps> = props => {
                 checked={clampToMax}
               />
               <span>Clamp to max</span>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                name="detectCollision"
+                checked={detectCollision}
+                disabled={isWalking === false}
+              />
+              <span>Detect collision</span>
             </label>
           </fieldset>
         </label>

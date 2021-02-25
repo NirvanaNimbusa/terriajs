@@ -52,6 +52,8 @@ export default class MovementsController {
 
   private terrainRequests = 0;
 
+  detectCollision = true;
+
   constructor(
     readonly cesium: Cesium,
     readonly onMove: () => void,
@@ -417,7 +419,8 @@ export default class MovementsController {
         this.scene.camera.position = nextHorizontalMovePosition;
       } else if (
         this.mode[0] === "walk" &&
-        this.canMoveTo(currentPosition, nextHorizontalMovePosition)
+        (this.detectCollision === false ||
+          this.canMoveTo(currentPosition, nextHorizontalMovePosition))
       ) {
         this.scene.camera.position = nextHorizontalMovePosition;
       }

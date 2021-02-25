@@ -23,6 +23,7 @@ const PedestrianMode: React.FC<PedestrianModeProps> = observer(props => {
     "walk",
     "clampToScene"
   ]);
+  const [detectCollision, setDetectCollision] = useState<boolean>(true);
 
   const onDropCancelled = () => viewState.closeTool();
   const updateView = () => setView(getViewFromScene(cesium.scene));
@@ -45,6 +46,8 @@ const PedestrianMode: React.FC<PedestrianModeProps> = observer(props => {
               onMove={updateView}
               mode={mode}
               onChangeMode={setMode}
+              detectCollision={detectCollision}
+              onChangeDetectCollision={setDetectCollision}
             />
           </ControlsContainer>
           <MiniMapContainer viewState={viewState}>
